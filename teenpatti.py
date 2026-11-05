@@ -1,17 +1,16 @@
 """
 Teen Patti game engine (pure Python, no dependencies) — solo and multiplayer.
 
-Players are described by specs: {"name": str, "is_human": bool, "chips": int}.
-Any seat can be a human or a bot; bot seats play automatically, and the game
-pauses whenever a human seat is to act or must answer a side show.
-
-Rules (classic Teen Patti):
-- Boot (ante) from everyone, 3 cards each, betting clockwise.
-- Blind players pay half the current stake; seen players pay the full stake.
-- Raise doubles the current stake (capped at 16x boot).
+Built to the MVP blueprint ruleset (version "bp-1"):
+- Standard 52-card deck, no jokers; cryptographically secure server-side shuffle.
+- Boot (ante) 100. Chaal (stake) starts at 200 and can rise to 400:
+  blind pays half the stake (100-200), seen pays the full stake (200-400).
+- Raise doubles the stake up to the 400 cap.
+- 30-second turn timer for human players; on timeout the player auto-folds.
 - Side show: a seen player may ask the previous seen player to compare;
-  the loser packs. The asked player may refuse. On a tie the requester packs.
-- Show: only when exactly 2 players remain; better hand wins (tie -> caller).
+  the loser packs; the asked player may refuse; on a tie the requester packs.
+- Show: only when exactly 2 players remain. Tied hands SPLIT the pot evenly;
+  any indivisible remainder goes to the earliest-seated tied player.
 - Last player standing wins the pot.
 
 Hand rankings (high -> low): Trail, Pure Sequence, Sequence, Color, Pair, High Card.
@@ -19,10 +18,12 @@ Sequences: A-K-Q > A-2-3 > K-Q-J > ... > 4-3-2.
 """
 
 import random
+import time
 
 RANKS = "23456789TJQKA"
 SUITS = "shdc"
 RANK_VALUE = {r: i + 2 for i, r in enumerate(RANKS)}
+_RNG = random.SystemRandom()  # cryptographically secure
 
 CATEGORY_NAMES = {
     6: "Trail (Trio)",
@@ -33,10 +34,12 @@ CATEGORY_NAMES = {
     1: "High Card",
 }
 
+RULESET_VERSION = "bp-1"
+
 
 def new_deck():
     deck = [r + s for r in RANKS for s in SUITS]
-    random.shuffle(deck)
+    _RNG.shuffle(deck)  # Fisher-Yates via SystemRandom
     return deck
 
 
@@ -89,15 +92,17 @@ class Player:
 
 
 class Game:
-    BOOT = 10
-    MAX_STAKE_MULT = 16
+    BOOT = 100
+    INITIAL_STAKE = 200
+    MAX_STAKE = 400
+    TURN_SECONDS = 30
     MAX_BET_ROUNDS = 60
 
     def __init__(self, player_specs):
-        self.players = [Player(s["name"], int(s.get("chips", 1000)), bool(s.get("is_human", False)))
+        self.players = [Player(s["name"], int(s.get("chips", 10000)), bool(s.get("is_human", False)))
                         for s in player_specs]
         self.pot = 0
-        self.stake = self.BOOT
+        self.stake = self.INITIAL_STAKE
         self.turn = 0
         self.dealer = -1
         self.phase = "idle"      # idle | betting | finished
@@ -105,6 +110,8 @@ class Game:
         self.winner = None
         self.bet_rounds = 0
         self.pending_sideshow = None   # {"from_idx": int, "to_idx": int}
+        self.last_result = None
+        self._deadline = None
 
     # ---------- helpers ----------
     def active_players(self):
@@ -127,15 +134,37 @@ class Game:
     def current_player(self):
         return self.players[self.turn] if self.phase == "betting" else None
 
+    # ---------- turn timer ----------
+    def _refresh_deadline(self):
+        """Set/clear the 30s deadline; auto-fold a human who runs out of time."""
+        cur = self.current_player()
+        if self.phase != "betting" or self.pending_sideshow or cur is None or not cur.is_human:
+            self._deadline = None
+            return
+        now = time.time()
+        if self._deadline is None:
+            self._deadline = now + self.TURN_SECONDS
+            return
+        if now > self._deadline:
+            self._deadline = None
+            cur.status = "packed"
+            self._say(f"⏱ {cur.name} ran out of time — auto-folded.")
+            if not self._finish_if_done():
+                self.bet_rounds += 1
+                self._advance_turn()
+                self.run_bots()
+
     # ---------- hand lifecycle ----------
     def start_hand(self):
         self.dealer = (self.dealer + 1) % len(self.players)
         deck = new_deck()
         self.pot = 0
-        self.stake = self.BOOT
+        self.stake = self.INITIAL_STAKE
         self.bet_rounds = 0
         self.winner = None
         self.pending_sideshow = None
+        self.last_result = None
+        self._deadline = None
         for p in self.players:
             p.cards = [deck.pop() for _ in range(3)]
             p.status = "active" if p.chips > 0 else "packed"
@@ -148,7 +177,7 @@ class Game:
         self.turn = self.dealer
         self._advance_turn()
         self.phase = "betting"
-        self._say(f"New hand! Everyone pays boot of {self.BOOT}. Pot: {self.pot}.")
+        self._say(f"New hand! Boot {self.BOOT} each. Pot: {self.pot}. Chaal starts at {self.stake}.")
         self.run_bots()
 
     def _advance_turn(self):
@@ -160,20 +189,37 @@ class Game:
     def _finish_if_done(self):
         active = self.active_players()
         if len(active) == 1:
-            self._award(active[0], "everyone else packed")
+            self._settle([active[0]], "everyone else packed")
             return True
         if self.bet_rounds >= self.MAX_BET_ROUNDS and len(active) >= 2:
-            best = max(active, key=lambda p: evaluate_hand(p.cards))
-            self._award(best, "stake limit reached — best hand")
+            best = max(evaluate_hand(p.cards) for p in active)
+            winners = [p for p in active if evaluate_hand(p.cards) == best]
+            self._settle(winners, "stake limit reached — best hand")
             return True
         return False
 
-    def _award(self, winner, reason):
-        winner.chips += self.pot
-        self.winner = winner.name
+    def _settle(self, winners, reason):
+        """Split the pot evenly among winners; remainder to the earliest seat."""
+        share = self.pot // len(winners)
+        remainder = self.pot - share * len(winners)
+        for i, w in enumerate(winners):
+            w.chips += share + (remainder if i == 0 else 0)
+        names = [w.name for w in winners]
+        self.winner = " & ".join(names)
         self.phase = "finished"
-        self._say(f"🏆 {winner.name} wins {self.pot} chips ({reason}) with "
-                  f"{CATEGORY_NAMES[evaluate_hand(winner.cards)[0]]}!")
+        hand_names = {p.name: CATEGORY_NAMES[evaluate_hand(p.cards)[0]]
+                      for p in self.players if p.cards}
+        self.last_result = {
+            "winners": names,
+            "pot": self.pot,
+            "reason": reason,
+            "hands": hand_names,
+            "ruleset": RULESET_VERSION,
+        }
+        if len(winners) == 1:
+            self._say(f"🏆 {names[0]} wins {self.pot} chips ({reason}) with {hand_names[names[0]]}!")
+        else:
+            self._say(f"🤝 Tie! {self.winner} split the pot of {self.pot} ({reason}).")
 
     # ---------- actions ----------
     def legal_actions(self, player):
@@ -184,7 +230,7 @@ class Game:
         if not player.seen:
             acts.append("see")
         acts.append("chaal")
-        if self.stake < self.BOOT * self.MAX_STAKE_MULT:
+        if self.stake < self.MAX_STAKE:
             acts.append("raise")
         if len(self.active_players()) == 2:
             acts.append("show")
@@ -202,6 +248,7 @@ class Game:
         return None
 
     def act(self, player, action):
+        self._deadline = None
         if action == "see":
             player.seen = True
             self._say(f"{player.name} looks at their cards (seen).")
@@ -213,7 +260,7 @@ class Game:
             paid = self._pay(player, self.cost_for(player))
             self._say(f"{player.name} {'(blind) ' if not player.seen else ''}chaal — pays {paid}. Pot: {self.pot}.")
         elif action == "raise":
-            self.stake = min(self.stake * 2, self.BOOT * self.MAX_STAKE_MULT)
+            self.stake = min(self.stake * 2, self.MAX_STAKE)
             paid = self._pay(player, self.cost_for(player))
             self._say(f"{player.name} RAISES the stake to {self.stake} — pays {paid}. Pot: {self.pot}.")
         elif action == "show":
@@ -221,7 +268,12 @@ class Game:
             other = [p for p in self.active_players() if p is not player][0]
             self._say(f"{player.name} pays {paid} and calls a SHOW against {other.name}!")
             cmp = compare_hands(player.cards, other.cards)
-            self._award(player if cmp >= 0 else other, "show")
+            if cmp > 0:
+                self._settle([player], "show")
+            elif cmp < 0:
+                self._settle([other], "show")
+            else:
+                self._settle([player, other], "show — tied hands split the pot")
             return True
         elif action == "sideshow":
             prev = self._previous_active(player)
@@ -259,6 +311,7 @@ class Game:
         if not pend:
             return False
         self.pending_sideshow = None
+        self._deadline = None
         requester = self.players[pend["from_idx"]]
         target = self.players[pend["to_idx"]]
         if not accept:
@@ -279,7 +332,7 @@ class Game:
 
     # ---------- bots ----------
     def _bot_sideshow_answer(self, bot):
-        return hand_strength(bot.cards) >= 0.35 or random.random() < 0.25
+        return hand_strength(bot.cards) >= 0.35 or _RNG.random() < 0.25
 
     def run_bots(self):
         guard = 0
@@ -293,29 +346,29 @@ class Game:
 
     def _bot_move(self, bot):
         strength = hand_strength(bot.cards)
-        if not bot.seen and bot.blind_rounds >= random.choice([1, 2]):
+        if not bot.seen and bot.blind_rounds >= _RNG.choice([1, 2]):
             self.act(bot, "see")
             if self.phase != "betting" or self.current_player() is not bot:
                 return
         active = self.active_players()
-        if len(active) == 2 and (strength > 0.55 or self.pot > 400) and bot.seen:
+        if len(active) == 2 and (strength > 0.55 or self.pot > 2000) and bot.seen:
             self.act(bot, "show")
             return
         prev = self._previous_active(bot)
-        if bot.seen and prev is not None and prev.seen and strength > 0.62 and random.random() < 0.4:
+        if bot.seen and prev is not None and prev.seen and strength > 0.62 and _RNG.random() < 0.4:
             self.act(bot, "sideshow")
             return
-        cost = self.cost_for(bot)
-        bluff = random.random() < 0.06
+        bluff = _RNG.random() < 0.06
         if strength < 0.22 and bot.seen and not bluff and self.stake >= self.BOOT * 2:
             self.act(bot, "pack")
-        elif strength > 0.72 and bot.seen and random.random() < 0.5:
+        elif strength > 0.72 and bot.seen and _RNG.random() < 0.5:
             self.act(bot, "raise")
         else:
             self.act(bot, "chaal")
 
     # ---------- state ----------
     def state(self, viewer_idx=0):
+        self._refresh_deadline()
         reveal = self.phase == "finished"
         viewer = self.players[viewer_idx] if 0 <= viewer_idx < len(self.players) else None
         players_out = []
@@ -336,6 +389,9 @@ class Game:
         if self.pending_sideshow and self.pending_sideshow["to_idx"] == viewer_idx:
             pend = {"from": self.players[self.pending_sideshow["from_idx"]].name,
                     "to": self.players[self.pending_sideshow["to_idx"]].name}
+        seconds_left = None
+        if self._deadline is not None:
+            seconds_left = max(0, int(self._deadline - time.time()))
         return {
             "phase": self.phase,
             "pot": self.pot,
@@ -343,7 +399,9 @@ class Game:
             "boot": self.BOOT,
             "turn": self.players[self.turn].name if self.phase == "betting" else None,
             "turn_idx": self.turn if self.phase == "betting" else None,
+            "seconds_left": seconds_left,
             "winner": self.winner,
+            "last_result": self.last_result,
             "log": self.log[-14:],
             "players": players_out,
             "viewer": viewer_idx,
