@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🪔 Teen Patti — Diwali Special</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: Georgia, 'Times New Roman', serif;
+    background: radial-gradient(ellipse at top, #4a0e0e 0%, #2b0606 55%, #1a0303 100%);
+    color: #ffe9b0; min-height: 100vh; padding: 12px;
+  }
+  header { text-align: center; margin-bottom: 6px; }
+  header h1 { font-size: 2rem; color: #ffcf4d; text-shadow: 0 0 18px #ff9500; letter-spacing: 1px; }
+  header p { color: #f5c97b; font-style: italic; font-size: .95rem; }
+  .diyas { font-size: 1.3rem; letter-spacing: 12px; text-align: center; opacity: .9; }
+  #table {
+    max-width: 880px; margin: 14px auto; background: radial-gradient(ellipse at center, #14663a 0%, #0b4426 70%, #07331c 100%);
+    border: 10px solid #7a4a12; border-radius: 180px/110px; padding: 26px 18px 20px;
+    box-shadow: 0 0 60px rgba(255,150,0,.35), inset 0 0 60px rgba(0,0,0,.5);
+  }
+  #seats { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
+  .seat {
+    width: 132px; background: rgba(0,0,0,.45); border: 2px solid #8a6d1f; border-radius: 12px;
+    padding: 8px 6px; text-align: center; transition: all .2s;
+  }
+  .seat.turn { border-color: #ffcf4d; box-shadow: 0 0 16px #ffcf4d; }
+  .seat.packed { opacity: .45; }
+  .seat.winner { border-color: #7dff8a; box-shadow: 0 0 18px #39d353; }
+  .seat .name { font-weight: bold; color: #ffd76a; font-size: .95rem; }
+  .seat .meta { font-size: .78rem; color: #ffe9b0; margin-top: 2px; }
+  .badge { display: inline-block; font-size: .65rem; padding: 1px 6px; border-radius: 8px; background: #7a4a12; color: #ffe9b0; margin-top: 3px; }
+  .badge.seen { background: #14532d; }
+  .cards { display: flex; justify-content: center; gap: 4px; margin-top: 6px; min-height: 46px; }
+  .card {
+    width: 32px; height: 46px; background: #fffdf5; border-radius: 5px; color: #222;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    font-weight: bold; font-size: .95rem; line-height: 1.05; box-shadow: 0 2px 5px rgba(0,0,0,.5);
+  }
+  .card.red { color: #c0272d; }
+  .card.back {
+    background: repeating-linear-gradient(45deg, #8e1f1f, #8e1f1f 5px, #b8860b 5px, #b8860b 7px);
+    border: 2px solid #ffe9b0;
+  }
+  #potbar { text-align: center; margin: 14px 0 4px; font-size: 1.15rem; color: #ffcf4d; }
+  #potbar b { font-size: 1.5rem; }
+  #controls { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin: 12px auto; max-width: 880px; }
+  button {
+    font-family: inherit; font-size: 1rem; font-weight: bold; cursor: pointer;
+    padding: 10px 18px; border-radius: 10px; border: 2px solid #ffcf4d;
+    background: linear-gradient(180deg, #8e1f1f, #5f1212); color: #ffe9b0;
+  }
+  button:hover:not(:disabled) { filter: brightness(1.3); }
+  button:disabled { opacity: .35; cursor: not-allowed; }
+  button.gold { background: linear-gradient(180deg, #d4a017, #8a6d1f); color: #2b0606; }
+  #handname { text-align: center; font-size: 1.05rem; color: #7dff8a; min-height: 1.4em; }
+  #log {
+    max-width: 880px; margin: 10px auto; background: rgba(0,0,0,.5); border: 1px solid #8a6d1f;
+    border-radius: 10px; padding: 10px 14px; font-size: .88rem; max-height: 170px; overflow-y: auto;
+  }
+  #log div { padding: 2px 0; border-bottom: 1px dashed rgba(255,233,176,.12); }
+  #banner { text-align: center; font-size: 1.3rem; color: #7dff8a; min-height: 1.6em; text-shadow: 0 0 12px #39d353; }
+  .rules { max-width: 880px; margin: 14px auto; font-size: .85rem; color: #f5c97b; background: rgba(0,0,0,.35); border-radius: 10px; padding: 12px 16px; }
+  .rules b { color: #ffcf4d; }
+  #sideshow-box { display:none; max-width:880px; margin:10px auto; text-align:center; background:#5f1212; border:2px solid #ffcf4d; border-radius:10px; padding:12px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="diyas">🪔 🪔 🪔</div>
+  <h1>TEEN PATTI</h1>
+  <p>✨ Diwali Special — play against 5 bots, virtual chips only ✨</p>
+</header>
+
+<div id="table">
+  <div id="seats"></div>
+  <div id="potbar">Pot: <b id="pot">0</b> &nbsp;•&nbsp; Current stake (chaal): <b id="stake">10</b></div>
+  <div id="handname"></div>
+  <div id="banner"></div>
+</div>
+
+<div id="sideshow-box">
+  <p id="sideshow-text"></p>
+  <div style="margin-top:8px;">
+    <button onclick="answerSideshow(true)">Accept side show</button>
+    <button onclick="answerSideshow(false)">Refuse</button>
+  </div>
+</div>
+
+<div id="controls">
+  <button id="btn-see" onclick="act('see')">👀 See Cards</button>
+  <button id="btn-chaal" class="gold" onclick="act('chaal')">Chaal</button>
+  <button id="btn-raise" onclick="act('raise')">Raise ⬆</button>
+  <button id="btn-sideshow" onclick="act('sideshow')">Side Show</button>
+  <button id="btn-show" onclick="act('show')">Show</button>
+  <button id="btn-pack" onclick="act('pack')">Pack</button>
+  <button id="btn-new" class="gold" onclick="newHand()">▶ New Hand</button>
+  <button id="btn-reset" onclick="resetGame()">↺ Reset (1,000 chips)</button>
+</div>
+
+<div id="log"></div>
+
+<div class="rules">
+  <b>Hand rankings (high → low):</b> Trail (three of a kind) › Pure Sequence › Sequence › Color › Pair › High Card.
+  Blind pays half the stake, seen pays full; raise doubles the stake. Side show: loser packs (tie → requester packs).
+  Show: only with 2 players left (tie → the player who called the show wins). Just for fun — no real money.
+</div>
+
+<script>
+const SUIT = { s: '♠', h: '♥', d: '♦', c: '♣' };
+let state = null;
+
+async function api(path, method = 'GET', body = null) {
+  const res = await fetch(path, {
+    method, headers: { 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : null,
+  });
+  const data = await res.json();
+  if (!res.ok) { alert(data.error || 'Something went wrong'); return state; }
+  return data;
+}
+
+function cardHTML(code, faceDown) {
+  if (faceDown) return '<div class="card back"></div>';
+  const rank = code[0] === 'T' ? '10' : code[0];
+  const suit = SUIT[code[1]];
+  const red = code[1] === 'h' || code[1] === 'd';
+  return `<div class="card ${red ? 'red' : ''}"><span>${rank}</span><span>${suit}</span></div>`;
+}
+
+function render(s) {
+  state = s;
+  document.getElementById('pot').textContent = s.pot;
+  document.getElementById('stake').textContent = s.stake;
+  const seats = document.getElementById('seats');
+  seats.innerHTML = s.players.map(p => {
+    const isTurn = s.phase === 'betting' && s.turn === p.name;
+    const isWinner = s.phase === 'finished' && s.winner === p.name;
+    let cards;
+    if (p.status === 'packed') {
+      cards = '<div style="font-size:.8rem;padding-top:12px;">PACKED</div>';
+    } else if (p.cards && p.cards.length === 3) {
+      cards = p.cards.map(c => cardHTML(c, false)).join('');
+    } else {
+      cards = cardHTML('', true) + cardHTML('', true) + cardHTML('', true);
+    }
+    const hand = (s.phase === 'finished' && p.hand_name) ? `<div class="meta">${p.hand_name}</div>` : '';
+    return `<div class="seat ${isTurn ? 'turn' : ''} ${p.status === 'packed' ? 'packed' : ''} ${isWinner ? 'winner' : ''}">
+      <div class="name">${p.is_human ? '🧑 You' : '🤖 ' + p.name}</div>
+      <div class="meta">💰 ${p.chips} chips</div>
+      <span class="badge ${p.seen ? 'seen' : ''}">${p.status === 'packed' ? 'OUT' : (p.seen ? 'SEEN' : 'BLIND')}</span>
+      <div class="cards">${cards}</div>${hand}</div>`;
+  }).join('');
+  document.getElementById('handname').textContent =
+    s.your_hand ? `Your hand: ${s.your_hand}` : (s.phase === 'betting' ? 'You are playing blind — tap "See Cards" to look.' : '');
+  document.getElementById('banner').textContent =
+    s.phase === 'finished' ? `🏆 ${s.winner} wins the pot!` : '';
+  document.getElementById('log').innerHTML = s.log.slice().reverse().map(l => `<div>${l}</div>`).join('');
+
+  const myTurn = s.phase === 'betting' && s.turn === 'You' && !s.pending_sideshow;
+  const acts = s.your_actions || [];
+  const enable = (id, ok) => document.getElementById(id).disabled = !(myTurn && ok);
+  enable('btn-see', acts.includes('see'));
+  enable('btn-chaal', acts.includes('chaal'));
+  enable('btn-raise', acts.includes('raise'));
+  enable('btn-show', acts.includes('show'));
+  enable('btn-sideshow', acts.includes('sideshow'));
+  enable('btn-pack', acts.includes('pack'));
+  document.getElementById('btn-new').disabled = s.phase === 'betting';
+  // cost hints
+  const you = s.players[0];
+  const cost = you.seen ? s.stake : s.stake / 2;
+  document.getElementById('btn-chaal').textContent = `Chaal (${cost})`;
+  document.getElementById('btn-raise').textContent = `Raise ⬆ (stake → ${Math.min(s.stake * 2, s.boot * 16)})`;
+
+  const ss = document.getElementById('sideshow-box');
+  if (s.pending_sideshow) {
+    ss.style.display = 'block';
+    document.getElementById('sideshow-text').textContent =
+      `🤔 ${s.pending_sideshow.from} asks YOU for a side show. Accept and the weaker hand packs.`;
+  } else {
+    ss.style.display = 'none';
+  }
+}
+
+async function act(a) { render(await api('/api/action', 'POST', { action: a })); }
+async function answerSideshow(accept) { render(await api('/api/action', 'POST', { action: accept ? 'sideshow_accept' : 'sideshow_refuse' })); }
+async function newHand() { render(await api('/api/new_hand', 'POST')); }
+async function resetGame() { render(await api('/api/reset', 'POST')); }
+
+(async () => {
+  const s = await api('/api/state');
+  if (s.phase === 'idle') { await resetGame(); } else { render(s); }
+})();
+</script>
+</body>
+</html>
