@@ -45,7 +45,7 @@
   }
   #potbar { text-align: center; margin: 14px 0 4px; font-size: 1.15rem; color: #ffcf4d; }
   #potbar b { font-size: 1.5rem; }
-  #controls { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin: 12px auto; max-width: 880px; }
+  #controls, #modebar, #roombar { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin: 12px auto; max-width: 880px; align-items: center; }
   button {
     font-family: inherit; font-size: 1rem; font-weight: bold; cursor: pointer;
     padding: 10px 18px; border-radius: 10px; border: 2px solid #ffcf4d;
@@ -54,6 +54,7 @@
   button:hover:not(:disabled) { filter: brightness(1.3); }
   button:disabled { opacity: .35; cursor: not-allowed; }
   button.gold { background: linear-gradient(180deg, #d4a017, #8a6d1f); color: #2b0606; }
+  button.small { font-size: .82rem; padding: 6px 12px; }
   #handname { text-align: center; font-size: 1.05rem; color: #7dff8a; min-height: 1.4em; }
   #log {
     max-width: 880px; margin: 10px auto; background: rgba(0,0,0,.5); border: 1px solid #8a6d1f;
@@ -64,45 +65,59 @@
   .rules { max-width: 880px; margin: 14px auto; font-size: .85rem; color: #f5c97b; background: rgba(0,0,0,.35); border-radius: 10px; padding: 12px 16px; }
   .rules b { color: #ffcf4d; }
   #sideshow-box { display:none; max-width:880px; margin:10px auto; text-align:center; background:#5f1212; border:2px solid #ffcf4d; border-radius:10px; padding:12px; }
-  #name-overlay {
+  .overlay {
     position: fixed; inset: 0; background: rgba(20,2,2,.88); display: none;
     align-items: center; justify-content: center; z-index: 50;
   }
-  #name-overlay .box {
+  .overlay .box {
     background: #2b0606; border: 2px solid #ffcf4d; border-radius: 16px; padding: 28px 26px;
     text-align: center; max-width: 92vw; box-shadow: 0 0 40px rgba(255,150,0,.4);
   }
-  #name-overlay h2 { color: #ffcf4d; margin-bottom: 8px; }
-  #name-overlay p { color: #f5c97b; margin-bottom: 14px; font-style: italic; }
-  #name-input {
+  .overlay h2 { color: #ffcf4d; margin-bottom: 8px; }
+  .overlay p { color: #f5c97b; margin-bottom: 14px; font-style: italic; }
+  .overlay input[type=text] {
     font-family: inherit; font-size: 1.15rem; padding: 10px 14px; border-radius: 10px;
     border: 2px solid #8a6d1f; width: 260px; max-width: 80vw; text-align: center;
   }
+  .overlay .stack { display: flex; flex-direction: column; gap: 10px; align-items: center; }
+  #roombar { display: none; background: rgba(0,0,0,.45); border: 1px solid #8a6d1f; border-radius: 10px; padding: 10px 14px; font-size: .95rem; }
+  #room-code-big { font-size: 1.6rem; color: #ffcf4d; letter-spacing: 4px; font-weight: bold; }
+  #members { font-size: .9rem; color: #ffe9b0; width: 100%; text-align: center; }
+  label.chk { font-size: .9rem; cursor: pointer; }
 </style>
 </head>
 <body>
 <header>
   <div class="diyas">🪔 🪔 🪔</div>
   <h1>TEEN PATTI</h1>
-  <p>✨ Diwali Special — play against 5 bots, virtual chips only ✨</p>
+  <p>✨ Diwali Special — solo vs bots, or a room with friends ✨</p>
 </header>
+
+<div id="modebar">
+  <button class="gold" onclick="playSolo()">🤖 Play Solo (vs bots)</button>
+  <button onclick="createRoom()">🏠 Create Room</button>
+  <span>
+    <input id="join-code" type="text" placeholder="ROOM CODE" maxlength="6"
+      style="font-family:inherit;font-size:1rem;padding:9px;border-radius:10px;border:2px solid #8a6d1f;width:140px;text-transform:uppercase;text-align:center;">
+    <button onclick="joinRoom(document.getElementById('join-code').value)">Join Room</button>
+  </span>
+  <button class="small" onclick="openNameBox()">✏️ <span id="modebar-name">Change Name</span></button>
+</div>
+
+<div id="roombar">
+  <div>Room code: <span id="room-code-big"></span></div>
+  <button class="small" onclick="copyInvite()">📋 Copy invite link</button>
+  <button class="small gold" id="btn-host-start" onclick="hostStart()">▶ Start Hand</button>
+  <label class="chk" id="fillbots-wrap"><input type="checkbox" id="chk-fillbots" onchange="toggleFillBots()"> Fill empty seats with bots</label>
+  <button class="small" onclick="leaveRoom()">Leave room</button>
+  <div id="members"></div>
+</div>
 
 <div id="table">
   <div id="seats"></div>
   <div id="potbar">Pot: <b id="pot">0</b> &nbsp;•&nbsp; Current stake (chaal): <b id="stake">10</b></div>
   <div id="handname"></div>
   <div id="banner"></div>
-</div>
-
-<div id="name-overlay">
-  <div class="box">
-    <h2>🪔 Welcome to Teen Patti!</h2>
-    <p>Choose the name you'll play as:</p>
-    <input id="name-input" type="text" maxlength="16" placeholder="Your name" autocomplete="off">
-    <div style="margin-top:14px;">
-      <button class="gold" onclick="saveName()">▶ Start Playing</button>
-    </div>
-  </div>
 </div>
 
 <div id="sideshow-box">
@@ -121,8 +136,6 @@
   <button id="btn-show" onclick="act('show')">Show</button>
   <button id="btn-pack" onclick="act('pack')">Pack</button>
   <button id="btn-new" class="gold" onclick="newHand()">▶ New Hand</button>
-  <button id="btn-reset" onclick="resetGame()">↺ Reset (1,000 chips)</button>
-  <button id="btn-name" onclick="openNameBox()">✏️ Change Name</button>
 </div>
 
 <div id="log"></div>
@@ -131,12 +144,29 @@
   <b>Hand rankings (high → low):</b> Trail (three of a kind) › Pure Sequence › Sequence › Color › Pair › High Card.
   Blind pays half the stake, seen pays full; raise doubles the stake. Side show: loser packs (tie → requester packs).
   Show: only with 2 players left (tie → the player who called the show wins). Just for fun — no real money.
+  <br><b>Multiplayer:</b> create a room, share the 6-letter code or invite link, friends join from anywhere.
+  The host starts each hand. In a room, the table updates live as friends play.
+</div>
+
+<div id="name-overlay" class="overlay">
+  <div class="box">
+    <h2>🪔 Welcome to Teen Patti!</h2>
+    <p>Choose the name you'll play as:</p>
+    <input id="name-input" type="text" maxlength="16" placeholder="Your name" autocomplete="off">
+    <div style="margin-top:14px;">
+      <button class="gold" onclick="saveName()">▶ Continue</button>
+    </div>
+  </div>
 </div>
 
 <script>
 const SUIT = { s: '♠', h: '♥', d: '♦', c: '♣' };
 let state = null;
 let myName = localStorage.getItem('tp_name') || '';
+let MODE = 'solo';                    // 'solo' | 'room'
+let roomCode = localStorage.getItem('tp_room') || '';
+let roomToken = localStorage.getItem('tp_token') || '';
+let pollTimer = null;
 
 function esc(t) {
   return String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -148,10 +178,25 @@ async function api(path, method = 'GET', body = null) {
     body: body ? JSON.stringify(body) : null,
   });
   const data = await res.json();
-  if (!res.ok) { alert(data.error || 'Something went wrong'); return state; }
+  if (!res.ok) { throw new Error(data.error || 'Something went wrong'); }
   return data;
 }
+async function apiQuiet(path, method = 'GET', body = null) {
+  try { return await api(path, method, body); }
+  catch (e) { alert(e.message); return state; }
+}
 
+// ---------- state accessors per mode ----------
+async function fetchState() {
+  if (MODE === 'room') return api(`/api/room/${roomCode}/state?token=${roomToken}`);
+  return api('/api/state');
+}
+async function postAction(a) {
+  if (MODE === 'room') return api(`/api/room/${roomCode}/action`, 'POST', { token: roomToken, action: a });
+  return api('/api/action', 'POST', { action: a });
+}
+
+// ---------- rendering ----------
 function cardHTML(code, faceDown) {
   if (faceDown) return '<div class="card back"></div>';
   const rank = code[0] === 'T' ? '10' : code[0];
@@ -161,36 +206,43 @@ function cardHTML(code, faceDown) {
 }
 
 function render(s) {
+  if (!s) return;
   state = s;
   document.getElementById('pot').textContent = s.pot;
   document.getElementById('stake').textContent = s.stake;
   const seats = document.getElementById('seats');
-  seats.innerHTML = s.players.map(p => {
-    const isTurn = s.phase === 'betting' && s.turn === p.name;
-    const isWinner = s.phase === 'finished' && s.winner === p.name;
-    let cards;
-    if (p.status === 'packed') {
-      cards = '<div style="font-size:.8rem;padding-top:12px;">PACKED</div>';
-    } else if (p.cards && p.cards.length === 3) {
-      cards = p.cards.map(c => cardHTML(c, false)).join('');
-    } else {
-      cards = cardHTML('', true) + cardHTML('', true) + cardHTML('', true);
-    }
-    const hand = (s.phase === 'finished' && p.hand_name) ? `<div class="meta">${p.hand_name}</div>` : '';
-    return `<div class="seat ${isTurn ? 'turn' : ''} ${p.status === 'packed' ? 'packed' : ''} ${isWinner ? 'winner' : ''}">
-      <div class="name">${p.is_human ? '🧑 ' + esc(p.name) : '🤖 ' + esc(p.name)}</div>
-      <div class="meta">💰 ${p.chips} chips</div>
-      <span class="badge ${p.seen ? 'seen' : ''}">${p.status === 'packed' ? 'OUT' : (p.seen ? 'SEEN' : 'BLIND')}</span>
-      <div class="cards">${cards}</div>${hand}</div>`;
-  }).join('');
-  document.getElementById('handname').textContent =
-    s.your_hand ? `Your hand: ${s.your_hand}` : (s.phase === 'betting' ? 'You are playing blind — tap "See Cards" to look.' : '');
+  if (MODE === 'room' && (!s.players || s.players.length === 0)) {
+    seats.innerHTML = '<div style="padding:18px;font-size:1.05rem;">Waiting in the lobby — the host will start the hand when everyone is in.</div>';
+  } else {
+    seats.innerHTML = (s.players || []).map((p, i) => {
+      const isTurn = s.phase === 'betting' && s.turn_idx === i;
+      const isWinner = s.phase === 'finished' && s.winner === p.name;
+      let cards;
+      if (p.status === 'packed') {
+        cards = '<div style="font-size:.8rem;padding-top:12px;">PACKED</div>';
+      } else if (p.cards && p.cards.length === 3) {
+        cards = p.cards.map(c => cardHTML(c, false)).join('');
+      } else {
+        cards = cardHTML('', true) + cardHTML('', true) + cardHTML('', true);
+      }
+      const hand = (s.phase === 'finished' && p.hand_name) ? `<div class="meta">${esc(p.hand_name)}</div>` : '';
+      return `<div class="seat ${isTurn ? 'turn' : ''} ${p.status === 'packed' ? 'packed' : ''} ${isWinner ? 'winner' : ''}">
+        <div class="name">${p.is_human ? '🧑' : '🤖'} ${esc(p.name)}${p.is_you ? ' (You)' : ''}</div>
+        <div class="meta">💰 ${p.chips} chips</div>
+        <span class="badge ${p.seen ? 'seen' : ''}">${p.status === 'packed' ? 'OUT' : (p.seen ? 'SEEN' : 'BLIND')}</span>
+        <div class="cards">${cards}</div>${hand}</div>`;
+    }).join('');
+  }
+  const inRoomLobby = MODE === 'room' && (s.room_phase === 'lobby');
+  document.getElementById('handname').textContent = s.spectating
+    ? '👀 You joined mid-hand — you are spectating. You will be dealt in next hand.'
+    : (s.your_hand ? `Your hand: ${s.your_hand}` :
+       (s.phase === 'betting' && s.viewer >= 0 ? 'You are playing blind — tap "See Cards" to look.' : ''));
   document.getElementById('banner').textContent =
     s.phase === 'finished' ? `🏆 ${s.winner} wins the pot!` : '';
-  document.getElementById('log').innerHTML = s.log.slice().reverse().map(l => `<div>${esc(l)}</div>`).join('');
+  document.getElementById('log').innerHTML = (s.log || []).slice().reverse().map(l => `<div>${esc(l)}</div>`).join('');
 
-  const me = s.players[0];
-  const myTurn = s.phase === 'betting' && s.turn === me.name && !s.pending_sideshow;
+  const myTurn = s.phase === 'betting' && s.viewer >= 0 && s.turn_idx === s.viewer && !s.pending_sideshow;
   const acts = s.your_actions || [];
   const enable = (id, ok) => document.getElementById(id).disabled = !(myTurn && ok);
   enable('btn-see', acts.includes('see'));
@@ -199,13 +251,14 @@ function render(s) {
   enable('btn-show', acts.includes('show'));
   enable('btn-sideshow', acts.includes('sideshow'));
   enable('btn-pack', acts.includes('pack'));
+  document.getElementById('btn-new').style.display = MODE === 'solo' ? '' : 'none';
   document.getElementById('btn-new').disabled = s.phase === 'betting';
-  // cost hints
-  const you = s.players[0];
-  const cost = you.seen ? s.stake : s.stake / 2;
-  document.getElementById('btn-chaal').textContent = `Chaal (${cost})`;
-  document.getElementById('btn-raise').textContent = `Raise ⬆ (stake → ${Math.min(s.stake * 2, s.boot * 16)})`;
-
+  const me = (s.players || [])[s.viewer];
+  if (me) {
+    const cost = me.seen ? s.stake : s.stake / 2;
+    document.getElementById('btn-chaal').textContent = `Chaal (${cost})`;
+    document.getElementById('btn-raise').textContent = `Raise ⬆ (stake → ${Math.min(s.stake * 2, s.boot * 16)})`;
+  }
   const ss = document.getElementById('sideshow-box');
   if (s.pending_sideshow) {
     ss.style.display = 'block';
@@ -214,8 +267,101 @@ function render(s) {
   } else {
     ss.style.display = 'none';
   }
+  // room bar
+  const rb = document.getElementById('roombar');
+  if (MODE === 'room') {
+    rb.style.display = 'flex';
+    document.getElementById('room-code-big').textContent = roomCode;
+    document.getElementById('members').innerHTML =
+      'Players: ' + (s.members || []).map(m =>
+        `${m.is_host ? '👑 ' : ''}${esc(m.name)}${m.is_you ? ' (You)' : ''} — 💰${m.chips}`).join(' &nbsp;•&nbsp; ');
+    document.getElementById('btn-host-start').style.display = s.is_host ? '' : 'none';
+    document.getElementById('btn-host-start').textContent =
+      s.room_phase === 'finished' ? '▶ Start Next Hand' : '▶ Start Hand';
+    document.getElementById('btn-host-start').disabled = s.room_phase === 'betting';
+    document.getElementById('fillbots-wrap').style.display = s.is_host ? '' : 'none';
+    document.getElementById('chk-fillbots').checked = !!s.fill_bots;
+  } else {
+    rb.style.display = 'none';
+  }
 }
 
+// ---------- actions ----------
+async function act(a) {
+  try { render(await postAction(a)); } catch (e) { alert(e.message); }
+}
+async function answerSideshow(accept) {
+  const a = accept ? 'sideshow_accept' : 'sideshow_refuse';
+  try { render(await postAction(a)); } catch (e) { alert(e.message); }
+}
+async function newHand() {
+  try { render(await api('/api/new_hand', 'POST')); } catch (e) { alert(e.message); }
+}
+
+// ---------- modes ----------
+function stopPolling() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
+function startPolling() {
+  stopPolling();
+  pollTimer = setInterval(async () => {
+    if (MODE !== 'room') return;
+    try { render(await fetchState()); } catch (e) { /* transient */ }
+  }, 1500);
+}
+
+async function playSolo() {
+  MODE = 'solo'; stopPolling();
+  localStorage.removeItem('tp_room'); localStorage.removeItem('tp_token');
+  roomCode = ''; roomToken = '';
+  try { render(await api('/api/reset', 'POST', { name: myName })); } catch (e) { alert(e.message); }
+}
+
+async function createRoom() {
+  try {
+    const r = await api('/api/room/create', 'POST', { name: myName });
+    enterRoom(r.code, r.token);
+    render(await fetchState());
+  } catch (e) { alert(e.message); }
+}
+
+async function joinRoom(code) {
+  code = (code || '').trim().toUpperCase();
+  if (!code) { alert('Enter a room code first.'); return; }
+  try {
+    const r = await api('/api/room/join', 'POST', { name: myName, code });
+    enterRoom(r.code, r.token);
+    render(await fetchState());
+  } catch (e) { alert(e.message); }
+}
+
+function enterRoom(code, token) {
+  MODE = 'room'; roomCode = code; roomToken = token;
+  localStorage.setItem('tp_room', code); localStorage.setItem('tp_token', token);
+  startPolling();
+}
+
+function leaveRoom() {
+  MODE = 'solo'; stopPolling();
+  localStorage.removeItem('tp_room'); localStorage.removeItem('tp_token');
+  roomCode = ''; roomToken = '';
+  playSolo();
+}
+
+async function hostStart() {
+  try { render(await api(`/api/room/${roomCode}/start`, 'POST', { token: roomToken })); }
+  catch (e) { alert(e.message); }
+}
+async function toggleFillBots() {
+  const fill = document.getElementById('chk-fillbots').checked;
+  try { render(await api(`/api/room/${roomCode}/fill_bots`, 'POST', { token: roomToken, fill })); }
+  catch (e) { alert(e.message); }
+}
+function copyInvite() {
+  const link = `${location.origin}${location.pathname}?room=${roomCode}`;
+  navigator.clipboard.writeText(`🪔 Join my Teen Patti room! Code: ${roomCode}\n${link}`)
+    .then(() => alert('Invite copied — send it to your friends!'));
+}
+
+// ---------- name ----------
 function openNameBox() {
   document.getElementById('name-input').value = myName || '';
   document.getElementById('name-overlay').style.display = 'flex';
@@ -223,21 +369,34 @@ function openNameBox() {
 }
 async function saveName() {
   const v = document.getElementById('name-input').value.trim().slice(0, 16);
-  myName = v || 'You';
+  myName = v || 'Player';
   localStorage.setItem('tp_name', myName);
   document.getElementById('name-overlay').style.display = 'none';
-  render(await api('/api/reset', 'POST', { name: myName }));
+  document.getElementById('modebar-name').textContent = myName;
+  if (MODE === 'solo') { try { render(await api('/api/reset', 'POST', { name: myName })); } catch (e) {} }
 }
 document.getElementById('name-input').addEventListener('keydown', e => { if (e.key === 'Enter') saveName(); });
 
-async function act(a) { render(await api('/api/action', 'POST', { action: a })); }
-async function answerSideshow(accept) { render(await api('/api/action', 'POST', { action: accept ? 'sideshow_accept' : 'sideshow_refuse' })); }
-async function newHand() { render(await api('/api/new_hand', 'POST')); }
-async function resetGame() { render(await api('/api/reset', 'POST')); }
-
+// ---------- boot ----------
 (async () => {
-  if (!myName) { openNameBox(); render(await api('/api/state')); return; }
-  render(await api('/api/reset', 'POST', { name: myName }));
+  const params = new URLSearchParams(location.search);
+  const invite = params.get('room');
+  if (!myName) {
+    openNameBox();
+    if (invite) document.getElementById('join-code').value = invite.toUpperCase();
+    render({ phase: 'lobby', pot: 0, stake: 10, boot: 10, players: [], log: [], viewer: -1, your_actions: [] });
+    return;
+  }
+  document.getElementById('modebar-name').textContent = myName;
+  if (invite) {
+    await joinRoom(invite);
+  } else if (roomCode && roomToken) {
+    MODE = 'room';
+    try { render(await fetchState()); startPolling(); }
+    catch (e) { await playSolo(); }
+  } else {
+    await playSolo();
+  }
 })();
 </script>
 </body>
