@@ -94,8 +94,17 @@
 </header>
 
 <div id="modebar">
+  <span id="walletbar" style="font-size:1rem;">💰 Balance: <b id="wallet-balance">—</b>
+    <button class="small gold" id="btn-refill" style="display:none;" onclick="refill()">Refill to 1,000 (free)</button>
+  </span>
   <button class="gold" onclick="playSolo()">🤖 Play Solo (vs bots)</button>
-  <button onclick="createRoom()">🏠 Create Room</button>
+  <span>
+    <select id="room-size" title="Table size" style="font-family:inherit;font-size:1rem;padding:9px;border-radius:10px;border:2px solid #8a6d1f;">
+      <option value="6">6 seats</option><option value="5">5 seats</option>
+      <option value="4">4 seats</option><option value="3">3 seats</option>
+    </select>
+    <button onclick="createRoom()">🏠 Create Room</button>
+  </span>
   <span>
     <input id="join-code" type="text" placeholder="ROOM CODE" maxlength="6"
       style="font-family:inherit;font-size:1rem;padding:9px;border-radius:10px;border:2px solid #8a6d1f;width:140px;text-transform:uppercase;text-align:center;">
@@ -115,7 +124,7 @@
 
 <div id="table">
   <div id="seats"></div>
-  <div id="potbar">Pot: <b id="pot">0</b> &nbsp;•&nbsp; Current stake (chaal): <b id="stake">10</b></div>
+  <div id="potbar">Pot: <b id="pot">0</b> &nbsp;•&nbsp; Current stake (chaal): <b id="stake">200</b> <span id="timer"></span></div>
   <div id="handname"></div>
   <div id="banner"></div>
 </div>
@@ -140,12 +149,25 @@
 
 <div id="log"></div>
 
+<div id="panels" style="max-width:880px;margin:10px auto;display:flex;gap:10px;flex-wrap:wrap;">
+  <div style="flex:1;min-width:260px;background:rgba(0,0,0,.5);border:1px solid #8a6d1f;border-radius:10px;padding:10px 14px;">
+    <b style="color:#ffcf4d;">🏆 Recent results</b>
+    <div id="history" style="font-size:.88rem;margin-top:6px;">No hands finished yet.</div>
+  </div>
+  <div style="flex:1;min-width:260px;background:rgba(0,0,0,.5);border:1px solid #8a6d1f;border-radius:10px;padding:10px 14px;">
+    <b style="color:#ffcf4d;">📊 Leaderboard</b>
+    <button class="small" style="float:right;" onclick="loadLeaderboard()">Refresh</button>
+    <div id="leaderboard" style="font-size:.88rem;margin-top:6px;">—</div>
+  </div>
+</div>
+
 <div class="rules">
-  <b>Hand rankings (high → low):</b> Trail (three of a kind) › Pure Sequence › Sequence › Color › Pair › High Card.
-  Blind pays half the stake, seen pays full; raise doubles the stake. Side show: loser packs (tie → requester packs).
-  Show: only with 2 players left (tie → the player who called the show wins). Just for fun — no real money.
-  <br><b>Multiplayer:</b> create a room, share the 6-letter code or invite link, friends join from anywhere.
-  The host starts each hand. In a room, the table updates live as friends play.
+  <b>Rules (blueprint ruleset):</b> Boot 100 • Chaal starts at 200, max 400 — blind pays half, seen pays full; raise doubles the stake.
+  Hand rankings: Trail › Pure Sequence › Sequence › Color › Pair › High Card (A-K-Q highest sequence, then A-2-3).
+  Side show: loser packs (tie → requester packs). Show: only with 2 players left — <b>tied hands split the pot</b>.
+  ⏱ <b>30 seconds per turn</b> — run out of time and you auto-fold.
+  <br><b>Coins:</b> free virtual coins only — 10,000 when you start, +500 daily reward, and a free refill to 1,000 if you hit zero (once per 24h). No real money, ever.
+  <br><b>Multiplayer:</b> rooms seat 3–6 players. Create a room, share the 6-letter code or invite link, friends join from anywhere. The host starts each hand.
 </div>
 
 <div id="name-overlay" class="overlay">
@@ -167,6 +189,11 @@ let MODE = 'solo';                    // 'solo' | 'room'
 let roomCode = localStorage.getItem('tp_room') || '';
 let roomToken = localStorage.getItem('tp_token') || '';
 let pollTimer = null;
+let playerId = localStorage.getItem('tp_pid') || '';
+if (!playerId) {
+  playerId = 'p-' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+  localStorage.setItem('tp_pid', playerId);
+}
 
 function esc(t) {
   return String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -241,6 +268,21 @@ function render(s) {
   document.getElementById('banner').textContent =
     s.phase === 'finished' ? `🏆 ${s.winner} wins the pot!` : '';
   document.getElementById('log').innerHTML = (s.log || []).slice().reverse().map(l => `<div>${esc(l)}</div>`).join('');
+  // wallet + timer + history
+  if (s.wallet) {
+    document.getElementById('wallet-balance').textContent = s.wallet.balance.toLocaleString();
+    document.getElementById('btn-refill').style.display = s.wallet.can_refill ? '' : 'none';
+  }
+  const tEl = document.getElementById('timer');
+  if (s.phase === 'betting' && s.seconds_left !== null && s.seconds_left !== undefined) {
+    const mine = s.viewer >= 0 && s.turn_idx === s.viewer;
+    tEl.textContent = ` • ⏱ ${s.seconds_left}s${mine ? ' — your turn!' : ''}`;
+    tEl.style.color = s.seconds_left <= 10 ? '#ff7b72' : '#7dff8a';
+  } else { tEl.textContent = ''; }
+  const hist = (s.history || []).slice().reverse();
+  document.getElementById('history').innerHTML = hist.length
+    ? hist.map(h => `<div>🏆 ${esc(h.winners.join(' & '))} — pot ${h.pot} (${esc(h.reason)})</div>`).join('')
+    : 'No hands finished yet.';
 
   const myTurn = s.phase === 'betting' && s.viewer >= 0 && s.turn_idx === s.viewer && !s.pending_sideshow;
   const acts = s.your_actions || [];
@@ -257,7 +299,7 @@ function render(s) {
   if (me) {
     const cost = me.seen ? s.stake : s.stake / 2;
     document.getElementById('btn-chaal').textContent = `Chaal (${cost})`;
-    document.getElementById('btn-raise').textContent = `Raise ⬆ (stake → ${Math.min(s.stake * 2, s.boot * 16)})`;
+    document.getElementById('btn-raise').textContent = `Raise ⬆ (stake → ${Math.min(s.stake * 2, 400)})`;
   }
   const ss = document.getElementById('sideshow-box');
   if (s.pending_sideshow) {
@@ -303,21 +345,22 @@ function stopPolling() { if (pollTimer) { clearInterval(pollTimer); pollTimer = 
 function startPolling() {
   stopPolling();
   pollTimer = setInterval(async () => {
-    if (MODE !== 'room') return;
     try { render(await fetchState()); } catch (e) { /* transient */ }
   }, 1500);
 }
 
 async function playSolo() {
-  MODE = 'solo'; stopPolling();
+  MODE = 'solo';
   localStorage.removeItem('tp_room'); localStorage.removeItem('tp_token');
   roomCode = ''; roomToken = '';
-  try { render(await api('/api/reset', 'POST', { name: myName })); } catch (e) { alert(e.message); }
+  try { render(await api('/api/reset', 'POST', { name: myName, player_id: playerId })); } catch (e) { alert(e.message); }
+  startPolling();
 }
 
 async function createRoom() {
   try {
-    const r = await api('/api/room/create', 'POST', { name: myName });
+    const max_players = parseInt(document.getElementById('room-size').value, 10);
+    const r = await api('/api/room/create', 'POST', { name: myName, player_id: playerId, max_players });
     enterRoom(r.code, r.token);
     render(await fetchState());
   } catch (e) { alert(e.message); }
@@ -327,7 +370,7 @@ async function joinRoom(code) {
   code = (code || '').trim().toUpperCase();
   if (!code) { alert('Enter a room code first.'); return; }
   try {
-    const r = await api('/api/room/join', 'POST', { name: myName, code });
+    const r = await api('/api/room/join', 'POST', { name: myName, code, player_id: playerId });
     enterRoom(r.code, r.token);
     render(await fetchState());
   } catch (e) { alert(e.message); }
@@ -355,6 +398,24 @@ async function toggleFillBots() {
   try { render(await api(`/api/room/${roomCode}/fill_bots`, 'POST', { token: roomToken, fill })); }
   catch (e) { alert(e.message); }
 }
+async function refill() {
+  try {
+    const w = await api('/api/wallet/refill', 'POST', { player_id: playerId });
+    document.getElementById('wallet-balance').textContent = w.balance.toLocaleString();
+    document.getElementById('btn-refill').style.display = 'none';
+    alert('Refilled to 1,000 coins. Good luck!');
+    if (MODE === 'solo') await playSolo();
+  } catch (e) { alert(e.message); }
+}
+async function loadLeaderboard() {
+  try {
+    const rows = await api('/api/leaderboard');
+    document.getElementById('leaderboard').innerHTML = rows.length
+      ? rows.map((r, i) => `<div>${i + 1}. ${esc(r.name)} — 💰 ${r.balance.toLocaleString()}</div>`).join('')
+      : 'No players yet.';
+  } catch (e) { /* ignore */ }
+}
+
 function copyInvite() {
   const link = `${location.origin}${location.pathname}?room=${roomCode}`;
   navigator.clipboard.writeText(`🪔 Join my Teen Patti room! Code: ${roomCode}\n${link}`)
@@ -373,7 +434,7 @@ async function saveName() {
   localStorage.setItem('tp_name', myName);
   document.getElementById('name-overlay').style.display = 'none';
   document.getElementById('modebar-name').textContent = myName;
-  if (MODE === 'solo') { try { render(await api('/api/reset', 'POST', { name: myName })); } catch (e) {} }
+  if (MODE === 'solo') { try { render(await api('/api/reset', 'POST', { name: myName, player_id: playerId })); startPolling(); } catch (e) {} }
 }
 document.getElementById('name-input').addEventListener('keydown', e => { if (e.key === 'Enter') saveName(); });
 
@@ -384,10 +445,12 @@ document.getElementById('name-input').addEventListener('keydown', e => { if (e.k
   if (!myName) {
     openNameBox();
     if (invite) document.getElementById('join-code').value = invite.toUpperCase();
-    render({ phase: 'lobby', pot: 0, stake: 10, boot: 10, players: [], log: [], viewer: -1, your_actions: [] });
+    render({ phase: 'lobby', pot: 0, stake: 200, boot: 100, players: [], log: [], viewer: -1, your_actions: [] });
+    loadLeaderboard();
     return;
   }
   document.getElementById('modebar-name').textContent = myName;
+  loadLeaderboard();
   if (invite) {
     await joinRoom(invite);
   } else if (roomCode && roomToken) {
