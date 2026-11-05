@@ -2,6 +2,7 @@
 On Render: gunicorn app:app  (see render.yaml)"""
 
 import os
+import re
 import uuid
 from flask import Flask, jsonify, request, session, send_from_directory
 
@@ -16,12 +17,18 @@ START_CHIPS = 1000
 games = {}  # session id -> Game (single-instance demo store)
 
 
+def clean_name(raw):
+    name = re.sub(r"[^\w\s.\-']", "", str(raw or "")).strip()[:16]
+    return name or "You"
+
+
 def get_game():
     sid = session.get("sid")
     if not sid or sid not in games:
         sid = uuid.uuid4().hex
         session["sid"] = sid
-        games[sid] = Game(["You"] + BOT_NAMES, start_chips=START_CHIPS)
+        name = session.get("player_name") or "You"
+        games[sid] = Game([name] + BOT_NAMES, start_chips=START_CHIPS)
     return games[sid]
 
 
@@ -47,9 +54,13 @@ def new_hand():
 
 @app.route("/api/reset", methods=["POST"])
 def reset():
+    data = request.get_json(silent=True) or {}
+    if data.get("name"):
+        session["player_name"] = clean_name(data["name"])
     sid = session.get("sid") or uuid.uuid4().hex
     session["sid"] = sid
-    games[sid] = Game(["You"] + BOT_NAMES, start_chips=START_CHIPS)
+    name = session.get("player_name") or "You"
+    games[sid] = Game([name] + BOT_NAMES, start_chips=START_CHIPS)
     games[sid].start_hand()
     return jsonify(games[sid].state())
 
