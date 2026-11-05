@@ -64,6 +64,20 @@
   .rules { max-width: 880px; margin: 14px auto; font-size: .85rem; color: #f5c97b; background: rgba(0,0,0,.35); border-radius: 10px; padding: 12px 16px; }
   .rules b { color: #ffcf4d; }
   #sideshow-box { display:none; max-width:880px; margin:10px auto; text-align:center; background:#5f1212; border:2px solid #ffcf4d; border-radius:10px; padding:12px; }
+  #name-overlay {
+    position: fixed; inset: 0; background: rgba(20,2,2,.88); display: none;
+    align-items: center; justify-content: center; z-index: 50;
+  }
+  #name-overlay .box {
+    background: #2b0606; border: 2px solid #ffcf4d; border-radius: 16px; padding: 28px 26px;
+    text-align: center; max-width: 92vw; box-shadow: 0 0 40px rgba(255,150,0,.4);
+  }
+  #name-overlay h2 { color: #ffcf4d; margin-bottom: 8px; }
+  #name-overlay p { color: #f5c97b; margin-bottom: 14px; font-style: italic; }
+  #name-input {
+    font-family: inherit; font-size: 1.15rem; padding: 10px 14px; border-radius: 10px;
+    border: 2px solid #8a6d1f; width: 260px; max-width: 80vw; text-align: center;
+  }
 </style>
 </head>
 <body>
@@ -78,6 +92,17 @@
   <div id="potbar">Pot: <b id="pot">0</b> &nbsp;•&nbsp; Current stake (chaal): <b id="stake">10</b></div>
   <div id="handname"></div>
   <div id="banner"></div>
+</div>
+
+<div id="name-overlay">
+  <div class="box">
+    <h2>🪔 Welcome to Teen Patti!</h2>
+    <p>Choose the name you'll play as:</p>
+    <input id="name-input" type="text" maxlength="16" placeholder="Your name" autocomplete="off">
+    <div style="margin-top:14px;">
+      <button class="gold" onclick="saveName()">▶ Start Playing</button>
+    </div>
+  </div>
 </div>
 
 <div id="sideshow-box">
@@ -97,6 +122,7 @@
   <button id="btn-pack" onclick="act('pack')">Pack</button>
   <button id="btn-new" class="gold" onclick="newHand()">▶ New Hand</button>
   <button id="btn-reset" onclick="resetGame()">↺ Reset (1,000 chips)</button>
+  <button id="btn-name" onclick="openNameBox()">✏️ Change Name</button>
 </div>
 
 <div id="log"></div>
@@ -110,6 +136,11 @@
 <script>
 const SUIT = { s: '♠', h: '♥', d: '♦', c: '♣' };
 let state = null;
+let myName = localStorage.getItem('tp_name') || '';
+
+function esc(t) {
+  return String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
 
 async function api(path, method = 'GET', body = null) {
   const res = await fetch(path, {
@@ -147,7 +178,7 @@ function render(s) {
     }
     const hand = (s.phase === 'finished' && p.hand_name) ? `<div class="meta">${p.hand_name}</div>` : '';
     return `<div class="seat ${isTurn ? 'turn' : ''} ${p.status === 'packed' ? 'packed' : ''} ${isWinner ? 'winner' : ''}">
-      <div class="name">${p.is_human ? '🧑 You' : '🤖 ' + p.name}</div>
+      <div class="name">${p.is_human ? '🧑 ' + esc(p.name) : '🤖 ' + esc(p.name)}</div>
       <div class="meta">💰 ${p.chips} chips</div>
       <span class="badge ${p.seen ? 'seen' : ''}">${p.status === 'packed' ? 'OUT' : (p.seen ? 'SEEN' : 'BLIND')}</span>
       <div class="cards">${cards}</div>${hand}</div>`;
@@ -156,9 +187,10 @@ function render(s) {
     s.your_hand ? `Your hand: ${s.your_hand}` : (s.phase === 'betting' ? 'You are playing blind — tap "See Cards" to look.' : '');
   document.getElementById('banner').textContent =
     s.phase === 'finished' ? `🏆 ${s.winner} wins the pot!` : '';
-  document.getElementById('log').innerHTML = s.log.slice().reverse().map(l => `<div>${l}</div>`).join('');
+  document.getElementById('log').innerHTML = s.log.slice().reverse().map(l => `<div>${esc(l)}</div>`).join('');
 
-  const myTurn = s.phase === 'betting' && s.turn === 'You' && !s.pending_sideshow;
+  const me = s.players[0];
+  const myTurn = s.phase === 'betting' && s.turn === me.name && !s.pending_sideshow;
   const acts = s.your_actions || [];
   const enable = (id, ok) => document.getElementById(id).disabled = !(myTurn && ok);
   enable('btn-see', acts.includes('see'));
@@ -184,14 +216,28 @@ function render(s) {
   }
 }
 
+function openNameBox() {
+  document.getElementById('name-input').value = myName || '';
+  document.getElementById('name-overlay').style.display = 'flex';
+  document.getElementById('name-input').focus();
+}
+async function saveName() {
+  const v = document.getElementById('name-input').value.trim().slice(0, 16);
+  myName = v || 'You';
+  localStorage.setItem('tp_name', myName);
+  document.getElementById('name-overlay').style.display = 'none';
+  render(await api('/api/reset', 'POST', { name: myName }));
+}
+document.getElementById('name-input').addEventListener('keydown', e => { if (e.key === 'Enter') saveName(); });
+
 async function act(a) { render(await api('/api/action', 'POST', { action: a })); }
 async function answerSideshow(accept) { render(await api('/api/action', 'POST', { action: accept ? 'sideshow_accept' : 'sideshow_refuse' })); }
 async function newHand() { render(await api('/api/new_hand', 'POST')); }
 async function resetGame() { render(await api('/api/reset', 'POST')); }
 
 (async () => {
-  const s = await api('/api/state');
-  if (s.phase === 'idle') { await resetGame(); } else { render(s); }
+  if (!myName) { openNameBox(); render(await api('/api/state')); return; }
+  render(await api('/api/reset', 'POST', { name: myName }));
 })();
 </script>
 </body>
